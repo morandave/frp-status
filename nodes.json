@@ -13,6 +13,13 @@
       "host": "cd.3.frp.one",
       "port": 37849,
       "type": "tcp"
+    },
+    {
+      "id": "frp-cn-sx-1",
+      "name": "FRP 节点 2",
+      "host": "cn-sx-1.qwq.fan",
+      "port": 28409,
+      "type": "tcp"
     }
   ]
 }
