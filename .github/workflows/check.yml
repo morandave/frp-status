@@ -1,0 +1,61 @@
+name: probe-and-publish
+
+on:
+  schedule:
+    # 每 5 分钟探测一次（UTC 时间）
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: probe-and-publish
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Restore previous status from gh-pages
+        shell: bash
+        run: |
+          if git fetch --depth=1 origin gh-pages; then
+            git show FETCH_HEAD:status.json > status.json
+            echo "Restored previous status.json from gh-pages"
+          else
+            echo "gh-pages branch does not exist yet, starting fresh"
+          fi
+
+      - name: Probe nodes
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: node check.mjs
+
+      - name: Publish status page (orphan gh-pages)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf _publish
+          mkdir _publish
+          cp index.html status.json _publish/
+          cd _publish
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git branch -M gh-pages
+          git add .
+          git commit -m "deploy: update node status"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

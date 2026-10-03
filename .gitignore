@@ -1,0 +1,4 @@
+status.json
+_publish/
+node_modules/
+.DS_Store

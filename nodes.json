@@ -1,0 +1,18 @@
+{
+  "settings": {
+    "probeTimeoutMs": 5000,
+    "attempts": 2,
+    "retryDelayMs": 3000,
+    "downThreshold": 2,
+    "historyLimit": 2016
+  },
+  "nodes": [
+    {
+      "id": "frp-cd-1",
+      "name": "FRP 节点 1",
+      "host": "cd.3.frp.one",
+      "port": 37849,
+      "type": "tcp"
+    }
+  ]
+}
