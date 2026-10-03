@@ -20,6 +20,27 @@
       "host": "cn-sx-1.qwq.fan",
       "port": 28409,
       "type": "tcp"
+    },
+    {
+      "id": "test-vip-bj",
+      "name": "测试端点 1",
+      "host": "vip.bj.frp.one",
+      "port": 58534,
+      "type": "tcp"
+    },
+    {
+      "id": "test-cd-4",
+      "name": "测试端点 2",
+      "host": "cd.4.frp.one",
+      "port": 38052,
+      "type": "tcp"
+    },
+    {
+      "id": "test-hn",
+      "name": "测试端点 3",
+      "host": "hn.frp.one",
+      "port": 39981,
+      "type": "tcp"
     }
   ]
 }
