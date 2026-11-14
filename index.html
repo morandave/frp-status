@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>内网穿透节点状态</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='%2322c55e'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b1020;
+    --card: #141a2e;
+    --line: #232b45;
+    --text: #e6eaf5;
+    --muted: #8b93ad;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --blue: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    color: var(--text);
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: radial-gradient(1200px 600px at 70% -10%, #1b2547 0%, var(--bg) 55%);
+  }
+  .container { max-width: 980px; margin: 0 auto; padding: 32px 20px 48px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  .banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; border-radius: 12px;
+    margin-bottom: 20px; font-size: 15px; font-weight: 600;
+  }
+  .banner.ok   { background: rgba(34,197,94,.12);  border: 1px solid rgba(34,197,94,.35); }
+  .banner.warn { background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.35); }
+  .banner.bad  { background: rgba(239,68,68,.12);  border: 1px solid rgba(239,68,68,.35); }
+  .banner.err  { background: rgba(139,147,173,.12); border: 1px solid var(--line); color: var(--muted); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+  }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .name { font-weight: 700; font-size: 16px; }
+  .addr {
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    margin-top: 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .copy {
+    border: 1px solid var(--line);
+    background: #1b223a;
+    color: var(--muted);
+    border-radius: 6px;
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .copy:hover { color: var(--text); }
+
+  .badge { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+  .badge.up   { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.4); }
+  .badge.down { background: rgba(239,68,68,.15); color: #f87171; border: 1px solid rgba(239,68,68,.4); }
+
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0 12px; }
+  .metric { background: #0f1528; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .metric .k { font-size: 11px; color: var(--muted); }
+  .metric .v { font-size: 16px; font-weight: 700; margin-top: 2px; }
+
+  .meta-row { font-size: 12px; color: var(--muted); }
+  .c-green { color: #4ade80; }
+  .c-amber { color: #fbbf24; }
+  .c-red   { color: #f87171; }
+
+  .spark { display: flex; align-items: flex-end; gap: 2px; height: 30px; margin-top: 10px; }
+  .spark span { flex: 1 1 0; border-radius: 2px 2px 0 0; min-width: 3px; }
+
+  .foot {
+    color: var(--muted); font-size: 12px;
+    margin-top: 24px;
+    display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  }
+
+  @media (max-width: 520px) {
+    .grid { grid-template-columns: 1fr; }
+    .container { padding: 24px 14px 40px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>内网穿透节点状态</h1>
+  <div class="sub">团队内部节点可用性看板 · 探测间隔约 5 分钟 · 页面 60 秒自动刷新</div>
+  <div id="banner"></div>
+  <div id="cards" class="grid"></div>
+  <div class="foot">
+    <span id="updated"></span>
+    <span id="countdown"></span>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const REFRESH_MS = 60000;
+let state = null;
+let nextRefreshAt = Date.now();
+
+function fmtPct(v) {
+  if (v === null || v === undefined) return '—';
+  return (v * 100).toFixed(2) + '%';
+}
+function pctClass(v) {
+  if (v === null || v === undefined) return '';
+  if (v >= 0.99) return 'c-green';
+  if (v >= 0.95) return 'c-amber';
+  return 'c-red';
+}
+function fmtLatency(v) {
+  return v === null || v === undefined ? '—' : v + ' ms';
+}
+function durationText(iso) {
+  const ms = Math.max(0, Date.now() - Date.parse(iso));
+  const totalMin = Math.floor(ms / 60000);
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  if (d > 0) return d + ' 天 ' + h + ' 小时';
+  if (h > 0) return h + ' 小时 ' + m + ' 分';
+  return m + ' 分钟';
+}
+
+function sparkline(history) {
+  const points = (history || []).slice(-72); // 最近约 6 小时
+  if (points.length === 0) return '<span style="background:var(--line);height:10px"></span>';
+  return points.map((p) => {
+    const t = new Date(p.t).toLocaleString('zh-CN', { hour12: false });
+    const title = t + ' ' + (p.up ? '正常' : '异常') +
+      (p.latencyMs !== null && p.latencyMs !== undefined ? ' · ' + p.latencyMs + 'ms' : '');
+    const bg = p.up ? 'var(--green)' : 'var(--red)';
+    // 延迟越低柱子越高，直观反映抖动
+    const height = p.up ? Math.max(10, Math.min(30, 30 - p.latencyMs / 25)) : 30;
+    return '<span style="background:' + bg + ';height:' + height + 'px" title="' +
+      title.replace(/"/g, '&quot;') + '"></span>';
+  }).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function render() {
+  const banner = document.getElementById('banner');
+  const cards = document.getElementById('cards');
+
+  if (!state || !Array.isArray(state.nodes)) {
+    banner.className = 'banner err';
+    banner.textContent = '暂时无法获取状态数据，请稍后重试';
+    cards.innerHTML = '';
+    document.getElementById('updated').textContent = '';
+    return;
+  }
+
+  const nodes = state.nodes;
+  const upCount = nodes.filter((n) => n.status === 'up').length;
+  let cls, text;
+  if (nodes.length > 0 && upCount === nodes.length) {
+    cls = 'ok';
+    text = '全部节点正常（' + upCount + '/' + nodes.length + '）';
+  } else if (upCount === 0) {
+    cls = 'bad';
+    text = '所有节点均异常（0/' + nodes.length + '）';
+  } else {
+    cls = 'warn';
+    text = '部分节点异常：正常 ' + upCount + '/' + nodes.length;
+  }
+  banner.className = 'banner ' + cls;
+  banner.textContent = text;
+
+  cards.innerHTML = nodes.map((n) => {
+    const addr = n.host + ':' + n.port;
+    return '' +
+      '<div class="card">' +
+        '<div class="card-head">' +
+          '<div>' +
+            '<div class="name">' + escapeHtml(n.name) + '</div>' +
+            '<div class="addr">' +
+              '<span>' + escapeHtml(addr) + '</span>' +
+              '<button class="copy" data-copy="' + escapeHtml(addr) + '">复制</button>' +
+            '</div>' +
+          '</div>' +
+          '<span class="badge ' + n.status + '">● ' + (n.status === 'up' ? '正常' : '异常') + '</span>' +
+        '</div>' +
+        '<div class="metrics">' +
+          '<div class="metric"><div class="k">延迟</div><div class="v">' + fmtLatency(n.latencyMs) + '</div></div>' +
+          '<div class="metric"><div class="k">24h 可用率</div><div class="v ' + pctClass(n.uptime24h) + '">' + fmtPct(n.uptime24h) + '</div></div>' +
+          '<div class="metric"><div class="k">7d 可用率</div><div class="v ' + pctClass(n.uptime7d) + '">' + fmtPct(n.uptime7d) + '</div></div>' +
+        '</div>' +
+        '<div class="meta-row">当前状态已持续 <b>' + durationText(n.lastChangeAt) + '</b>' +
+          (n.status === 'down' ? ' · 连续失败 ' + n.consecutiveFailures + ' 次' : '') +
+        '</div>' +
+        '<div class="spark">' + sparkline(n.history) + '</div>' +
+      '</div>';
+  }).join('');
+
+  bindCopyButtons();
+
+  document.getElementById('updated').textContent =
+    '最近检测：' + new Date(state.updatedAt).toLocaleString('zh-CN', { hour12: false });
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+}
+
+function bindCopyButtons() {
+  document.querySelectorAll('.copy').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      // 先给出视觉反馈，再异步写剪贴板（部分浏览器会挂起权限询问）
+      copyToClipboard(btn.getAttribute('data-copy'));
+      const old = btn.dataset.oldText || btn.textContent;
+      btn.dataset.oldText = old;
+      btn.textContent = '已复制';
+      clearTimeout(btn._resetTimer);
+      btn._resetTimer = setTimeout(() => { btn.textContent = btn.dataset.oldText; }, 1500);
+    });
+  });
+}
+
+async function load() {
+  try {
+    const res = await fetch('status.json?ts=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    state = await res.json();
+  } catch (e) {
+    state = null;
+  }
+  nextRefreshAt = Date.now() + REFRESH_MS;
+  render();
+}
+
+setInterval(() => {
+  const left = Math.max(0, Math.round((nextRefreshAt - Date.now()) / 1000));
+  document.getElementById('countdown').textContent = left > 0 ? left + ' 秒后自动刷新' : '刷新中…';
+}, 1000);
+
+// 定时刷新“已持续 xx 分钟”等相对时间
+setInterval(() => { if (state) render(); }, 30000);
+
+load();
+setInterval(load, REFRESH_MS);
+</script>
+</body>
+</html>
